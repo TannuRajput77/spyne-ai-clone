@@ -1,0 +1,9 @@
+datasets/
+models/*.pt
+models/*.pth
+runs/
+venv/
+__pycache__/
+*.pyc
+outputs/*.png
+outputs/*.jpg
