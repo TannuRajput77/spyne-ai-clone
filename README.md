@@ -41,9 +41,6 @@ It's built the way the production system is described to work: detect the vehicl
 | Batch generalization test | 6 random unseen vehicles | `outputs/batch_results/result_*.jpg` |
 | SfM | Sparse point cloud (partial, 6/9 images registered, ~230 points) | `datasets/sfm_output/sparse/0/` |
 
-![Pipeline result — detection box, angle label, segmentation mask](outputs/pipeline_result.jpg)
-![Diffusion-generated floor background, car composited](outputs/diffusion_final.jpg)
-![Real-ESRGAN enhanced output](outputs/gan_enhanced.png)
 
 ---
 
