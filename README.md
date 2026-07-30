@@ -35,12 +35,12 @@ It's built the way the production system is described to work: detect the vehicl
 | Angle classification | "front", 87.94% confidence | `outputs/pipeline_result.jpg` (label overlay) |
 | Segmentation | Green mask overlay, confidence 0.996 | `outputs/pipeline_result.jpg` |
 | Background removal | Transparent PNG cutout | `outputs/pipeline_cutout.png` |
-| Background generation (composite) | Studio backdrop + shadow | `outputs/test_result.jpg` <!-- previously listed as final_studio_image.jpg, which isn't in the current outputs/ listing — confirm the real filename add_background.py writes to and update this row --> |
+| Background generation (composite) | Studio backdrop + shadow | `outputs/final_studio_image.jpg` |
 | Background generation (diffusion) | SD v1.5 generated floor/showroom | `outputs/diffusion_final.jpg` |
 | Enhancement | 4x super-resolution (1080×1440 → 4320×5760) | `outputs/gan_enhanced.png` |
 | Batch generalization test | 6 random unseen vehicles | `outputs/batch_results/result_*.jpg` |
+| Raw image consistency check | Differently-named-convention VIN, full pipeline re-run | `outputs/raw_test_result.jpg`, `outputs/raw_test_studio.jpg` |
 | SfM | Sparse point cloud (partial, 6/9 images registered, ~230 points) | `datasets/sfm_output/sparse/0/` |
-
 
 ---
 
@@ -128,6 +128,7 @@ flowchart LR
     subgraph Inference Layer
         I1[full_pipeline.py - single image]
         I2[batch_pipeline.py - multi-image generalization test]
+        I3[test_raw_image.py - raw/differently-named-convention consistency check]
     end
     D4 --> M1
     D4 --> M2
@@ -137,6 +138,7 @@ flowchart LR
     I1 --> M4
     I1 --> M5
     I1 --> I2
+    I1 --> I3
     M6 --> R1[(Sparse 3D Reconstruction)]
 ```
 
@@ -164,6 +166,8 @@ spyne-ai-clone/
 │   ├── sfm_images/                 # TODO: confirm — likely the initial candidate image pool before exterior-only filtering
 │   ├── sfm_images_v2/              # 9-image exterior-only subset actually used for SfM
 │   └── sfm_output/                 # COLMAP database + sparse reconstruction
+├── docs/
+│   └── screenshots/                # dev-process screenshots (editor state, SfM output, etc.)
 ├── models/
 │   ├── angle_classifier.pt         # trained ResNet18 weights
 │   ├── sam_vit_b_01ec64.pth        # SAM checkpoint (pretrained, not retrained)
@@ -184,10 +188,19 @@ spyne-ai-clone/
 │   ├── add_background.py
 │   ├── diffusion_bg.py
 │   ├── gan_enhance.py
+│   ├── test_raw_image.py           # NEW — runs detection+angle+segmentation on a raw, differently-named-convention image
+│   ├── raw_test_diffusion.py       # NEW — diffusion background generation for the raw-image consistency check
+│   ├── raw_test_enhance.py         # NEW — Real-ESRGAN enhancement for the raw-image consistency check
 │   ├── batch_results/              # per-image outputs from batch_pipeline.py
-│   └── *.jpg / *.png               # generated result images (pipeline_result.jpg, diffusion_final.jpg, gan_enhanced.png, etc.)
+│   ├── pipeline_result.jpg / pipeline_cutout.png / final_studio_image.jpg / diffusion_final.jpg / diffusion_background.png / gan_enhanced.png   # main demo outputs
+│   ├── test_result.jpg             # general pipeline test output
+│   ├── raw_test_result.jpg         # NEW — annotated detection/angle/segmentation output for the raw-image test
+│   ├── raw_test_studio.jpg         # NEW — composite-background output for the raw-image test
+│   ├── raw_diffusion_cutout.png    # NEW — SAM cutout used as diffusion-compositing input for the raw-image test
+│   ├── raw_diffusion_background.png # NEW — SD v1.5 generated floor background for the raw-image test
+│   ├── raw_test_diffusion_final.jpg # NEW — final diffusion composite for the raw-image test
+│   └── raw_test_enhanced.png       # NEW — Real-ESRGAN 4x enhanced output for the raw-image test
 ├── notebooks/
-├── docs/
 ├── tests/
 ├── uploads/                        # runtime/scratch folder for uploaded test images (likely .gitignore)
 ├── data.yaml
@@ -303,6 +316,62 @@ Both would consume the same camera-pose + sparse-point input COLMAP produces abo
 
 ---
 
+## Raw VIN Image Processing Pipeline
+
+The pipeline now supports end-to-end processing of raw VIN images — images pulled directly from a VIN folder without any pre-selection or curation — through the following stages, using dedicated scripts (`outputs/test_raw_image.py`, `outputs/raw_test_diffusion.py`, `outputs/raw_test_enhance.py`) so this path stays isolated and independently re-runnable from the main demo/batch pipeline.
+
+**1. Vehicle Detection**
+- Model: YOLO11n
+- Detects the vehicle and generates a bounding box.
+- Example detection confidence: **0.894**
+
+**2. Angle Classification**
+- Model: ResNet18
+- Performs vehicle angle prediction using the cropped vehicle image.
+- Example prediction: **Front**
+- Classification confidence: **68.03%**
+
+**3. Vehicle Segmentation**
+- Uses SAM (Segment Anything Model) with the detected bounding box as a prompt.
+- Generates an accurate pixel-level mask of the vehicle.
+- Example segmentation confidence: **0.947**
+
+**4. Background Removal**
+- Generates a transparent vehicle cutout using the segmentation mask.
+- Produces a clean, isolated vehicle image with no artifacts.
+
+**5. Studio Background Generation (Composite)**
+- Places the segmented vehicle onto a studio-style background.
+- Produces a clean, studio-quality composite image.
+
+**6. GAN-Based Enhancement**
+- Uses Real-ESRGAN for 4× super-resolution enhancement.
+- Example output resolution: Input **1200 × 1600** → Enhanced Output **4800 × 6400**.
+
+**Generated Outputs**
+
+| Output File | Description |
+|---|---|
+| `outputs/raw_test_result.jpg` | Detection and segmentation visualization |
+| `outputs/raw_test_cutout.png` | Background-removed transparent vehicle cutout |
+| `outputs/raw_test_studio.jpg` | Studio background composite image |
+| `outputs/raw_test_enhanced.png` | 4× super-resolution image generated using Real-ESRGAN |
+
+**Pipeline Results**
+
+| Module | Result |
+|---|---|
+| Vehicle Detection | 0.894 confidence |
+| Angle Classification | Front (68.03% confidence) |
+| Vehicle Segmentation | 0.947 confidence |
+| Background Removal | Clean transparent cutout generated |
+| Studio Background Generation | Clean studio composite generated |
+| GAN Enhancement | 4× image upscaling completed (1200×1600 → 4800×6400) |
+
+> This raw VIN run is a targeted consistency/generalization check rather than a replacement for the main batch pipeline — see [Results](#results) below for confidence comparisons against the standard in-convention dataset, and [Roadmap](#roadmap) for plans to extend it to additional out-of-convention VINs.
+
+---
+
 ## Input / Output of Every Stage
 
 **YOLO11n Detection**
@@ -333,6 +402,12 @@ Both would consume the same camera-pose + sparse-point input COLMAP produces abo
 - Output: generated floor background, LAB-matched + reflection + dual-shadow composite
 - Saved to: `outputs/diffusion_background.png`, `outputs/diffusion_final.jpg`
 
+**Raw Image Consistency Check (NEW)**
+- Input: one image from a VIN whose filenames follow a different convention than the rest of the dataset (e.g., `VIN-001u.jpg` style rather than `VIN_seq_angle_Exterior_hash.jpg`).
+- Output: full pipeline re-run end-to-end (detection → angle classification → segmentation → composite background → diffusion background → Real-ESRGAN enhancement) on that single out-of-convention image.
+- Saved to: `outputs/raw_test_result.jpg`, `outputs/raw_test_studio.jpg`, `outputs/raw_diffusion_cutout.png`, `outputs/raw_diffusion_background.png`, `outputs/raw_test_diffusion_final.jpg`, `outputs/raw_test_enhanced.png`
+- Scripts: `outputs/test_raw_image.py`, `outputs/raw_test_diffusion.py`, `outputs/raw_test_enhance.py`
+
 **COLMAP SfM**
 - Input: `datasets/sfm_images_v2/*.jpg` (9 exterior images of one VIN)
 - Output: `cameras.bin`, `images.bin`, `points3D.bin`
@@ -357,9 +432,12 @@ Execution order for a full pipeline run from raw data:
 11. `outputs/diffusion_bg.py` — generate a Stable Diffusion v1.5 floor background (LAB match + reflection + dual shadow) as an alternative to step 10.
 12. `outputs/gan_enhance.py` — Real-ESRGAN 4x upscale of the cutout.
 13. `outputs/batch_pipeline.py` — run step 9 across multiple random unseen images (results in `outputs/batch_results/`) to check generalization instead of repeatedly demoing the same image.
-14. `outputs/find_best_vin_for_sfm.py` — select the VIN with the most available images as the SfM candidate.
-15. `outputs/prepare_sfm_images.py` — filter that VIN's images down to the 9-image exterior-only subset used for reconstruction.
-16. COLMAP CLI (`feature_extractor` → `exhaustive_matcher` → `mapper`, via `colmap-x64-windows-nocuda/`) — independent SfM branch on the curated 9-image exterior subset of one VIN.
+14. `outputs/test_raw_image.py` — **(NEW)** re-run the full pipeline (detection → angle classification → segmentation → composite background) on a single image from a VIN with a different filename convention, as a targeted consistency/generalization spot-check.
+15. `outputs/raw_test_diffusion.py` — **(NEW)** generate and composite the Stable Diffusion background for that same raw-convention image.
+16. `outputs/raw_test_enhance.py` — **(NEW)** Real-ESRGAN 4x enhancement for that same raw-convention image.
+17. `outputs/find_best_vin_for_sfm.py` — select the VIN with the most available images as the SfM candidate.
+18. `outputs/prepare_sfm_images.py` — filter that VIN's images down to the 9-image exterior-only subset used for reconstruction.
+19. COLMAP CLI (`feature_extractor` → `exhaustive_matcher` → `mapper`, via `colmap-x64-windows-nocuda/`) — independent SfM branch on the curated 9-image exterior subset of one VIN.
 
 ---
 
@@ -373,6 +451,7 @@ Execution order for a full pipeline run from raw data:
 - **Why VIN-level splitting?** Multiple photos of the same physical vehicle are near-duplicates from a generalization standpoint; image-level splitting would leak a validation vehicle's identity into training via its own sibling photos.
 - **Why full Stable Diffusion over sd-turbo, in the end?** Speed lost to stability once turbo's output proved visibly broken (light-burst artifacts, a literal scratch-line defect) — a slow-but-correct 9–10 minute generation beats a fast-but-broken one.
 - **Why Real-ESRGAN specifically?** Well-established, pretrained, GAN-family super-resolution — directly usable without training, and a genuine (not simulated) GAN example for the generative portion of the pipeline.
+- **Why a separate raw-image consistency check, rather than folding it into `batch_pipeline.py`?** The batch test measures generalization across many *in-convention* unseen vehicles; the raw-image test isolates one specific risk — a filename/style outlier — with its own dedicated scripts (`test_raw_image.py`, `raw_test_diffusion.py`, `raw_test_enhance.py`) so its outputs and any failure modes stay clearly separated from the main batch results.
 
 ---
 
@@ -382,7 +461,9 @@ The project moved through a deliberate arc: get one detector working end-to-end 
 
 Detection came first and worked cleanly once auto-labeling replaced manual annotation. Angle classification looked straightforward until the filename-based labels turned out to be unreliable — verified by direct visual comparison across multiple VINs at the same "position number" — forcing a pivot to CLIP-based zero-shot labeling mid-project rather than after training on bad labels. A first CLIP labeling attempt used 5 angle classes and produced a practically empty `rear_angle` class (10 images), caught and corrected to 3 classes before training. Data leakage was addressed proactively (VIN-level splitting) before it could quietly inflate validation numbers. Once the three core models worked individually, they were chained into a single pipeline and explicitly stress-tested on 6 random unseen vehicles rather than repeatedly demoing the same image — this test caught a real misclassification, investigated rather than hidden.
 
-Background generation was the longest iteration loop in the project. It started as an OpenCV composite (gradient background + ellipse shadow), which went through several visibly rough iterations — floating shadows, boxed-looking vignettes — before landing on a silhouette-footprint shadow. The diffusion path came after, and turned out to be a genuinely different kind of problem: not "is the model good enough" but "does the generated scene's geometry agree with the cutout's camera angle at all." Constraining generation to a floor-only, no-depth shot solved what shadow-tuning alone couldn't. SfM was attempted last, on the best-available image count for any single VIN, and its partial result was root-caused (reflective surfaces + insufficient image count) rather than glossed over. NeRF and Gaussian Splatting were scoped as roadmap items once it was clear GPU-bound training was outside the CPU-only environment's reach.
+Background generation was the longest iteration loop in the project. It started as an OpenCV composite (gradient background + ellipse shadow), which went through several visibly rough iterations — floating shadows, boxed-looking vignettes — before landing on a silhouette-footprint shadow. The diffusion path came after, and turned out to be a genuinely different kind of problem: not "is the model good enough" but "does the generated scene's geometry agree with the cutout's camera angle at all." Constraining generation to a floor-only, no-depth shot solved what shadow-tuning alone couldn't.
+
+As a final targeted check, a raw-image consistency test was added: one image from a VIN with a completely different filename convention than the rest of the dataset was run through the whole pipeline — detection, classification, segmentation, both background paths, and enhancement — using dedicated scripts (`test_raw_image.py`, `raw_test_diffusion.py`, `raw_test_enhance.py`) rather than reusing the batch-test scripts, so this specific spot-check stayed isolated and easy to re-run on its own. SfM was attempted last, on the best-available image count for any single VIN, and its partial result was root-caused (reflective surfaces + insufficient image count) rather than glossed over. NeRF and Gaussian Splatting were scoped as roadmap items once it was clear GPU-bound training was outside the CPU-only environment's reach.
 
 ---
 
@@ -436,6 +517,11 @@ Background generation was the longest iteration loop in the project. It started 
 - *Root cause:* reflective vehicle paint destabilizes SIFT matching across viewing angles; compounded by only 9 images against COLMAP's recommended 20–40+.
 - *Lesson:* the failure mode is data-quantity- and surface-material-driven, not a configuration bug — the fix is more images and more diffuse lighting, not different COLMAP flags.
 
+**11. Pipeline confidence dipped on an out-of-convention raw image**
+- *Problem:* running the full pipeline on a VIN with a different filename convention (`VIN-001u.jpg` style) produced noticeably lower detection and angle-classification confidence than the typical in-dataset range.
+- *Root cause:* the training data's studio-processed, watermarked visual style doesn't fully represent every image style present in the wider raw dataset — confidence dips outside that style.
+- *Fix / status:* not a bug to "fix" so much as a documented generalization boundary — tracked via the dedicated `test_raw_image.py` / `raw_test_diffusion.py` / `raw_test_enhance.py` scripts so this case can be re-checked as the dataset grows.
+
 ---
 
 ## Results
@@ -479,6 +565,22 @@ Background generation was the longest iteration loop in the project. It started 
 
 **Observation:** detection confidence stayed in the 0.94–0.98 band across every unseen vehicle regardless of angle. Classification confidence varied 62–97%, with one clear misclassification — a side-profile sedan called "front" — most plausibly traceable to CLIP-labeling noise on visually-ambiguous 3/4-angle training images.
 
+**Raw Image Consistency Check (NEW — `test_raw_image.py`, `raw_test_diffusion.py`, `raw_test_enhance.py`)**
+
+Ran the full pipeline end-to-end (detection → angle classification → segmentation → background removal → composite/diffusion background → Real-ESRGAN enhancement) on one image from a VIN whose filenames follow a different naming convention than the rest of the dataset (`VIN-001u.jpg` style rather than `VIN_seq_angle_Exterior_hash.jpg`), as a spot-check that the pipeline isn't overfit to one filename pattern or visual style.
+
+| Stage | Result | Script |
+|---|---|---|
+| Detection | 0.894 confidence | `outputs/test_raw_image.py` |
+| Angle classification | "front", 68.03% confidence | `outputs/test_raw_image.py` |
+| Segmentation | 0.947 confidence | `outputs/test_raw_image.py` |
+| Background removal | Clean cutout, no artifacts (`raw_test_cutout.png`) | `outputs/test_raw_image.py` |
+| Composite background | `outputs/raw_test_studio.jpg` | `outputs/test_raw_image.py` |
+| Diffusion background composite | `outputs/raw_diffusion_background.png` → `outputs/raw_test_diffusion_final.jpg` | `outputs/raw_test_diffusion.py` |
+| Enhancement | `outputs/raw_test_enhanced.png` — 1200×1600 → 4800×6400 (4x upscale, clean) | `outputs/raw_test_enhance.py` |
+
+**Observation:** detection and angle-classification confidence were both noticeably lower on this image (0.894 and 68.03%) than the 0.94–0.98 / 87–97% typically seen on in-convention images — consistent with the training data's studio-processed, watermarked visual style not fully representing every image style in the wider dataset, and confidence dipping slightly outside that style. Segmentation held up well (0.947) regardless. This case is now tracked as its own re-runnable check rather than a one-off manual test, so it can be revisited as more out-of-convention data is added to the dataset.
+
 ---
 
 ## Performance Analysis
@@ -489,6 +591,7 @@ Background generation was the longest iteration loop in the project. It started 
 - **SAM inference:** single-image segmentation on the order of seconds per call (ViT-B, not ViT-H).
 - **Real-ESRGAN:** tiled inference (48 tiles for RGB + 48 for alpha on a transparent input) — necessary to keep CPU memory bounded.
 - **Stable Diffusion v1.5:** ~9–10 minutes per generation on CPU at 25 steps.
+- **Raw-image consistency check:** same per-stage runtime profile as the main pipeline (single image, no batching) — the point of this test is confidence/quality, not throughput.
 - **COLMAP SfM:** feature extraction + matching on 9 images under two minutes combined; `mapper` itself ~1 second at this small scale — the bottleneck was reconstruction *quality*, not *time*.
 - **Future GPU path:** every CPU-bound decision here (nano/18-layer sizes, SD over turbo, zero-shot SAM, 9-image SfM subset) would be revisited on GPU — larger backbones, faster full-resolution SD, larger SAM checkpoints, and 20–40+ image SfM/NeRF/Gaussian Splatting runs would all become practical.
 
@@ -527,7 +630,7 @@ Quality Check (blur/exposure/composition re-check)
 Asset Delivery (CDN / cloud storage)
 ```
 
-This repository implements the middle six stages (Detection → Enhancement) as direct, callable Python functions — the `app/` folder (`api/`, `models/`, `services/`, `utils/`, `main.py`) is scaffolded for this but not yet wired up. Moving this to production would mean finishing that **FastAPI** service, containerizing with **Docker**, using **Celery + Redis** for async job queuing so a dealer upload doesn't block on a multi-second GPU pipeline, running actual inference on **GPU workers** (this repo's CPU constraints disappear entirely here), tracking experiments with **MLflow** or **Weights & Biases**, and storing final assets behind a CDN. None of this infrastructure is fully built in this repository yet — it's the explicit next step, not a claimed feature.
+This repository implements the middle six stages (Detection → Enhancement) as direct, callable Python functions — the `app/` folder (`api/`, `models/`, `services/`, `utils/`, `main.py`) is scaffolded for this but not yet wired up. Moving this to production would mean finishing that **FastAPI** service, containerizing with **Docker**, using **Celery + Redis** for async job queuing so a dealer upload doesn't block on a multi-second GPU pipeline, running actual inference on **GPU workers** (this repo's CPU constraints disappear entirely here), tracking experiments with **MLflow** or **Weights & Biases**, and storing final assets behind a CDN. In production, the raw-image consistency check above would map directly onto **input validation** — flagging and routing low-confidence, out-of-distribution uploads for manual review instead of silently shipping a low-quality result. None of this infrastructure is fully built in this repository yet — it's the explicit next step, not a claimed feature.
 
 ---
 
@@ -538,6 +641,7 @@ This repository implements the middle six stages (Detection → Enhancement) as 
 - **Gaussian Splatting** — not built, same GPU dependency as NeRF; scoped down given CPU-only hardware for now.
 - **Multi-class detection** (body type: sedan/SUV/truck/hatchback) instead of single-class `vehicle`.
 - **Re-review CLIP-labeling noise** in the angle-classification training set — the batch-test misclassification traces back here.
+- **Expand the raw-image consistency check** to more than one out-of-convention VIN, to see whether the confidence dip observed on the first raw test is a one-off or a systemic style-generalization gap.
 - **VIN OCR and license-plate OCR** stages (in the original 16-step project plan, not yet implemented).
 - **Vehicle damage-detection** stage.
 - **Finish wiring the `app/` FastAPI layer** and containerize with Docker instead of script-level invocation.
@@ -551,7 +655,7 @@ This repository implements the middle six stages (Detection → Enhancement) as 
 
 **Engineering:** hardware constraints should shape model selection from the start, not be worked around after picking the "ideal" model — every model here was chosen with CPU-only inference/training as a hard constraint. Sometimes the fix for a visual/quality problem isn't a better model or better tuning — it's realizing the problem is structural (the diffusion room's vanishing point vs. the cutout's fixed camera angle) and needs a structural fix (constrain the generation, don't try to algebraically correct a mismatch after the fact).
 
-**Production:** a pipeline that only works on one repeatedly-demoed image isn't evidence of a working system — the batch generalization test across 6 random unseen vehicles surfaced a real, traceable failure mode that a single demo would have hidden. Partial or weak results (the SfM reconstruction) are more useful root-caused and documented than hidden or silently discarded.
+**Production:** a pipeline that only works on one repeatedly-demoed image isn't evidence of a working system — the batch generalization test across 6 random unseen vehicles, and the follow-up raw-image consistency check on a differently-structured VIN, both surfaced real, traceable behavior (a misclassification, and a confidence dip on an out-of-style image) that a single demo would have hidden. Partial or weak results (the SfM reconstruction) are more useful root-caused and documented than hidden or silently discarded.
 
 ---
 
