@@ -167,7 +167,7 @@ spyne-ai-clone/
 │   ├── sfm_images_v2/              # 9-image exterior-only subset actually used for SfM
 │   └── sfm_output/                 # COLMAP database + sparse reconstruction
 ├── docs/
-│   └── screenshots/                # dev-process screenshots (editor state, SfM output, etc.)
+│   └── screenshots/                # dev-process screenshots (editor state, SfM output.)
 ├── models/
 │   ├── angle_classifier.pt         # trained ResNet18 weights
 │   ├── sam_vit_b_01ec64.pth        # SAM checkpoint (pretrained, not retrained)
